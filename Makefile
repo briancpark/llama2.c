@@ -36,6 +36,11 @@ runomp: run.c
 	$(CC) -Ofast -fopenmp -march=native run.c  -lm  -o run
 	$(CC) -Ofast -fopenmp -march=native runq.c  -lm  -o runq
 
+.PHONY: runomp
+runcuda: run.cu
+	nvcc -O3 -o run run.cu -lm
+	# nvcc -O3 -o runq runq.cu -lm
+
 .PHONY: win64
 win64:
 	x86_64-w64-mingw32-gcc -Ofast -D_WIN32 -o run.exe -I. run.c win.c
