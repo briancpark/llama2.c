@@ -13,6 +13,9 @@ Inference for Llama-2 Transformer model in pure Cuda.
 #include <cuda_fp16.h>
 #include <cub/cub.cuh>
 
+#include <cublas_v2.h>
+static cublasHandle_t handle;
+
 // ----------------------------------------------------------------------------
 // GPU kernels
 
@@ -706,6 +709,9 @@ int argmax(float *v, int n)
 
 int main(int argc, char *argv[])
 {
+    // setup cublas handle
+    cublasCreate(&handle);
+
 
     // poor man's C argparse
     char *checkpoint = NULL;  // e.g. out/model.bin
@@ -904,5 +910,7 @@ int main(int argc, char *argv[])
     free(vocab_scores);
     if (prompt_tokens != NULL)
         free(prompt_tokens);
+
+    cublasDestroy(handle);
     return 0;
 }

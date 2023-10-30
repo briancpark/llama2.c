@@ -38,7 +38,8 @@ runomp: run.c
 
 .PHONY: runomp
 runcuda: run.cu
-	nvcc -O3 -o run run.cu -lm
+	
+	nvcc -O3 -o run run.cu -lm -arch=sm_70 -lcublas -use_fast_math
 	# nvcc -O3 -o runq runq.cu -lm
 
 .PHONY: win64
