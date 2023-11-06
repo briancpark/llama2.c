@@ -13,6 +13,11 @@
     #include <unistd.h>
     #include <sys/mman.h>
 #endif
+
+#ifdef MKL
+#include "immintrin.h"
+#include "mkl.h"
+#endif
 // ----------------------------------------------------------------------------
 // Transformer model
 
@@ -77,6 +82,20 @@ typedef struct {
 void malloc_run_state(RunState* s, Config* p) {
     // we calloc instead of malloc to keep valgrind happy
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
+#ifdef MKL
+    s->x = mkl_malloc(p->dim * sizeof(float), 64);
+    s->xb = mkl_malloc(p->dim * sizeof(float), 64);
+    s->xb2 = mkl_malloc(p->dim * sizeof(float), 64);
+    s->hb = mkl_malloc(p->hidden_dim * sizeof(float), 64);
+    s->hb2 = mkl_malloc(p->hidden_dim * sizeof(float), 64);
+    s->q = mkl_malloc(p->dim * sizeof(float), 64);
+    s->key_cache =
+        mkl_malloc(p->n_layers * p->seq_len * kv_dim * sizeof(float), 64);
+    s->value_cache =
+        mkl_malloc(p->n_layers * p->seq_len * kv_dim * sizeof(float), 64);
+    s->att = mkl_malloc(p->n_heads * p->seq_len * sizeof(float), 64);
+    s->logits = mkl_malloc(p->vocab_size * sizeof(float), 64);
+#else
     s->x = calloc(p->dim, sizeof(float));
     s->xb = calloc(p->dim, sizeof(float));
     s->xb2 = calloc(p->dim, sizeof(float));
@@ -87,6 +106,7 @@ void malloc_run_state(RunState* s, Config* p) {
     s->value_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
     s->att = calloc(p->n_heads * p->seq_len, sizeof(float));
     s->logits = calloc(p->vocab_size, sizeof(float));
+#endif
     // ensure all mallocs went fine
     if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
      || !s->key_cache || !s->value_cache || !s->att || !s->logits) {
@@ -96,6 +116,18 @@ void malloc_run_state(RunState* s, Config* p) {
 }
 
 void free_run_state(RunState* s) {
+#ifdef MKL
+    mkl_free(s->x);
+    mkl_free(s->xb);
+    mkl_free(s->xb2);
+    mkl_free(s->hb);
+    mkl_free(s->hb2);
+    mkl_free(s->q);
+    mkl_free(s->att);
+    mkl_free(s->logits);
+    mkl_free(s->key_cache);
+    mkl_free(s->value_cache);
+#else
     free(s->x);
     free(s->xb);
     free(s->xb2);
@@ -106,6 +138,7 @@ void free_run_state(RunState* s) {
     free(s->logits);
     free(s->key_cache);
     free(s->value_cache);
+#endif
 }
 
 void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared_weights) {
@@ -217,6 +250,9 @@ void softmax(float* x, int size) {
 void matmul(float* xout, float* x, float* w, int n, int d) {
     // W (d,n) @ x (n,) -> xout (d,)
     // by far the most amount of time is spent inside this little function
+#ifdef MKL
+    cblas_sgemv(CblasRowMajor, CblasNoTrans, d, n, 1.0, w, n, x, 1, 0.0, xout, 1);
+#else
     int i;
     #pragma omp parallel for private(i)
     for (i = 0; i < d; i++) {
@@ -226,6 +262,7 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
         }
         xout[i] = val;
     }
+#endif
 }
 
 float* forward(Transformer* transformer, int token, int pos) {
@@ -549,7 +586,7 @@ void encode(Tokenizer* t, char *text, int8_t bos, int8_t eos, int *tokens, int *
                 best_id = id;
                 best_idx = i;
             }
-        }
+}
 
         if (best_idx == -1) {
             break; // we couldn't find any more pairs to merge, so we're done

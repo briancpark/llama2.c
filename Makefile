@@ -33,8 +33,8 @@ runfast: run.c
 # OMP_NUM_THREADS=4 ./run out/model.bin
 .PHONY: runomp
 runomp: run.c
-	$(CC) -Ofast -fopenmp -march=native run.c  -lm  -o run
-	$(CC) -Ofast -fopenmp -march=native runq.c  -lm  -o runq
+	$(CC) -Ofast -fopenmp -march=native run.c  -lm  -o run -Wl,--no-as-needed -lmkl_gf_lp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl -DMKL
+	$(CC) -Ofast -fopenmp -march=native runq.c  -lm  -o runq -DMKL
 
 .PHONY: win64
 win64:
