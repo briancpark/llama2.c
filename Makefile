@@ -33,8 +33,22 @@ runfast: run.c
 # OMP_NUM_THREADS=4 ./run out/model.bin
 .PHONY: runomp
 runomp: run.c
-	$(CC) -Ofast -fopenmp -march=native run.c  -lm  -o run -Wl,--no-as-needed -lmkl_gf_lp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl -DMKL
-	$(CC) -Ofast -fopenmp -march=native runq.c  -lm  -o runq -DMKL
+	$(CC) -Ofast -fopenmp -march=native run.c  -lm  -o run
+	$(CC) -Ofast -fopenmp -march=native runq.c  -lm  -o runq
+
+.PHONY: runmkl
+runmkl: run.c
+	$(CC) -Ofast -fopenmp -march=native run.c  -lm  -o run -DMKL -Wl,--no-as-needed -lmkl_gf_lp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl 
+	$(CC) -Ofast -fopenmp -march=native runq.c  -lm  -o runq -DMKL -Wl,--no-as-needed -lmkl_gf_lp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl
+
+.PHONY: myrun
+myrun: run.c
+	$(CC) -Ofast -fopenmp -g -march=native -DMY_OPT -o run run.c microkernels.c -lm -DMY_OPT -Wl,--no-as-needed -lmkl_gf_lp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl
+	$(CC) -Ofast -fopenmp -g -march=native -DMY_OPT -o runq runq.c -lm 
+
+.PHONY: microbenchmarks
+microbenchmarks: microbenchmarks.c
+	$(CC) -Ofast -fopenmp -march=native -o microbenchmarks microbenchmarks.c microkernels.c -lm -Wl,--no-as-needed -lmkl_gf_lp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl
 
 .PHONY: win64
 win64:

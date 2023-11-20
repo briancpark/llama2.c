@@ -14,10 +14,12 @@
     #include <sys/mman.h>
 #endif
 
-#ifdef MKL
-#include "immintrin.h"
-#include "mkl.h"
+#if MKL || MY_OPT
+    #include "immintrin.h"
+    #include "mkl.h"
+    #include "microkernels.h"
 #endif
+
 // ----------------------------------------------------------------------------
 // Transformer model
 
@@ -82,7 +84,7 @@ typedef struct {
 void malloc_run_state(RunState* s, Config* p) {
     // we calloc instead of malloc to keep valgrind happy
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
-#ifdef MKL
+#if MKL || MY_OPT
     s->x = mkl_malloc(p->dim * sizeof(float), 64);
     s->xb = mkl_malloc(p->dim * sizeof(float), 64);
     s->xb2 = mkl_malloc(p->dim * sizeof(float), 64);
@@ -116,7 +118,7 @@ void malloc_run_state(RunState* s, Config* p) {
 }
 
 void free_run_state(RunState* s) {
-#ifdef MKL
+#if MKL || MY_OPT
     mkl_free(s->x);
     mkl_free(s->xb);
     mkl_free(s->xb2);
@@ -247,12 +249,12 @@ void softmax(float* x, int size) {
     }
 }
 
+#ifdef MY_OPT
+
+#else // MY_OPT
 void matmul(float* xout, float* x, float* w, int n, int d) {
     // W (d,n) @ x (n,) -> xout (d,)
     // by far the most amount of time is spent inside this little function
-#ifdef MKL
-    cblas_sgemv(CblasRowMajor, CblasNoTrans, d, n, 1.0, w, n, x, 1, 0.0, xout, 1);
-#else
     int i;
     #pragma omp parallel for private(i)
     for (i = 0; i < d; i++) {
@@ -262,8 +264,8 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
         }
         xout[i] = val;
     }
-#endif
 }
+#endif // MY_OPT
 
 float* forward(Transformer* transformer, int token, int pos) {
 
@@ -294,9 +296,15 @@ float* forward(Transformer* transformer, int token, int pos) {
         s->v = s->value_cache + loff + pos * kv_dim;
 
         // qkv matmuls for this position
+#ifdef MKL
+        cblas_sgemv(CblasRowMajor, CblasNoTrans, p->n_heads * head_size, dim, 1.0f, w->wq + l*dim*dim, dim, s->xb, 1, 0.0f, s->q, 1);
+        cblas_sgemv(CblasRowMajor, CblasNoTrans, p->n_kv_heads * head_size, dim, 1.0f, w->wk + l*dim*dim, dim, s->xb, 1, 0.0f, s->k, 1);
+        cblas_sgemv(CblasRowMajor, CblasNoTrans, p->n_kv_heads * head_size, dim, 1.0f, w->wv + l*dim*dim, dim, s->xb, 1, 0.0f, s->v, 1);
+#else
         matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
         matmul(s->k, s->xb, w->wk + l*dim*kv_dim, dim, kv_dim);
         matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
+#endif
 
         // RoPE relative positional encoding: complex-valued rotate q and k in each head
         for (int i = 0; i < dim; i+=2) {
@@ -356,7 +364,11 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         // final matmul to get the output of the attention
+#ifdef MKL
+        cblas_sgemv(CblasRowMajor, CblasNoTrans, dim, p->n_heads * head_size, 1.0f, w->wo + l*dim*dim, dim, s->xb, 1, 0.0f, s->xb2, 1);
+#else
         matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
+#endif
 
         // residual connection back into x
         for (int i = 0; i < dim; i++) {
@@ -368,9 +380,13 @@ float* forward(Transformer* transformer, int token, int pos) {
 
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
+#ifdef MKL
+        cblas_sgemv(CblasRowMajor, CblasNoTrans, hidden_dim, dim, 1.0f, w->w1 + l*dim*hidden_dim, dim, s->xb, 1, 0.0f, s->hb, 1);
+        cblas_sgemv(CblasRowMajor, CblasNoTrans, hidden_dim, dim, 1.0f, w->w3 + l*dim*hidden_dim, dim, s->xb, 1, 0.0f, s->hb2, 1);
+#else
         matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
         matmul(s->hb2, s->xb, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
-
+#endif
         // SwiGLU non-linearity
         for (int i = 0; i < hidden_dim; i++) {
             float val = s->hb[i];
@@ -382,7 +398,11 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         // final matmul to get the output of the ffn
+#ifdef MKL
+        cblas_sgemv(CblasRowMajor, CblasNoTrans, dim, hidden_dim, 1.0f, w->w2 + l*dim*hidden_dim, hidden_dim, s->hb, 1, 0.0f, s->xb, 1);
+#else
         matmul(s->xb, s->hb, w->w2 + l*dim*hidden_dim, hidden_dim, dim);
+#endif
 
         // residual connection
         for (int i = 0; i < dim; i++) {
@@ -394,7 +414,11 @@ float* forward(Transformer* transformer, int token, int pos) {
     rmsnorm(x, x, w->rms_final_weight, dim);
 
     // classifier into logits
+#ifdef MKL
+    cblas_sgemv(CblasRowMajor, CblasNoTrans, p->vocab_size, dim, 1.0f, w->wcls, dim, x, 1, 0.0f, s->logits, 1);
+#else // ACCELERATE_NEW_LAPACK
     matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
+#endif // ACCELERATE_NEW_LAPACK
     return s->logits;
 }
 
