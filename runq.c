@@ -14,6 +14,9 @@
     #include <unistd.h>
     #include <sys/mman.h>
 #endif
+#include <Accelerate/Accelerate.h>
+#include <arm_neon.h>
+
 // ----------------------------------------------------------------------------
 // Globals
 int GS = 0; // group size global for quantization of the weights

@@ -1,6 +1,6 @@
 # choose your compiler, e.g. gcc/clang
 # example override to clang: make run CC=clang
-CC = gcc
+CC = clang
 
 # the most basic way of building that is most likely to work on most systems
 .PHONY: run
@@ -36,6 +36,20 @@ runomp: run.c
 	$(CC) -Ofast -fopenmp -march=native run.c  -lm  -o run
 	$(CC) -Ofast -fopenmp -march=native runq.c  -lm  -o runq
 
+.PHONY: runaccelerate
+runaccelerate: run.c
+	$(CC) -Ofast -fopenmp -g -march=native -DACCELERATE_NEW_LAPACK -o run run.c -lm -framework Accelerate -mfpu=neon -mfloat-abi=hard
+	$(CC) -Ofast -fopenmp -g -march=native -DACCELERATE_NEW_LAPACK -o runq runq.c -lm -framework Accelerate -mfpu=neon -mfloat-abi=hard
+
+.PHONY: myrun
+myrun: run.c
+	$(CC) -Ofast -fopenmp -g -march=native -DMY_OPT -o run run.c microkernels.c -lm -mfpu=neon -mfloat-abi=hard
+	$(CC) -Ofast -fopenmp -g -march=native -DMY_OPT -o runq runq.c -lm -mfpu=neon -mfloat-abi=hard
+
+.PHONY: microbenchmarks
+microbenchmarks: microbenchmarks.c
+	$(CC) -Ofast -fopenmp -g -march=native -DACCELERATE_NEW_LAPACK -o microbenchmarks microbenchmarks.c microkernels.c -lm -framework Accelerate -mfpu=neon -mfloat-abi=hard
+	
 .PHONY: win64
 win64:
 	x86_64-w64-mingw32-gcc -Ofast -D_WIN32 -o run.exe -I. run.c win.c
