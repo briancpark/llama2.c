@@ -1,7 +1,7 @@
 # choose your compiler, e.g. gcc/clang
 # example override to clang: make run CC=clang
 CC = gcc
-
+CFLAGS= -I${ARMPL_DIR}/include
 # the most basic way of building that is most likely to work on most systems
 .PHONY: run
 run: run.c
@@ -36,6 +36,21 @@ runomp: run.c
 	$(CC) -Ofast -fopenmp -march=native run.c  -lm  -o run
 	$(CC) -Ofast -fopenmp -march=native runq.c  -lm  -o runq
 
+PHONY: runarmpl
+runarmpl: run.c
+	
+	$(CC) $(CFLAGS) -Ofast -fopenmp -g -march=native -o run run.c -fopenmp -mcpu=native -DARMPL -DINTEGER32 -L${ARMPL_DIR}/lib   -larmpl_mp -lm -lamath -lastring
+	# $(CC) -Ofast -fopenmp -g -march=native -o runq runq.c -fopenmp -mcpu=native -DARMPL -DINTEGER32 -L${ARMPL_DIR}/lib  -larmpl_mp -lm -lamath -lastring
+
+.PHONY: myrun
+myrun: run.c
+	$(CC) -Ofast -fopenmp -g -march=native -DMY_OPT -o run run.c microkernels.c -lm #-mfpu=neon -mfloat-abi=hard
+	$(CC) -Ofast -fopenmp -g -march=native -DMY_OPT -o runq runq.c -lm #-mfpu=neon -mfloat-abi=hard
+
+.PHONY: microbenchmarks
+microbenchmarks: microbenchmarks.c
+	$(CC) $(CFLAGS) -Ofast -fopenmp -g -march=native -DARMPL -o microbenchmarks microbenchmarks.c microkernels.c -DINTEGER32 -L${ARMPL_DIR}/lib   -larmpl_mp -lm -lamath -lastring
+	
 .PHONY: win64
 win64:
 	x86_64-w64-mingw32-gcc -Ofast -D_WIN32 -o run.exe -I. run.c win.c
