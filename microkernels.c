@@ -19,13 +19,17 @@ void matmul_32000_768(float* xout, float* x, float* w) {
     int i;
 #pragma omp parallel for private(i)
     for (i = 0; i < 32000; i++) {
-        float32x4_t val_vec1 = vdupq_n_f32(0.0f);
-        float32x4_t val_vec2 = vdupq_n_f32(0.0f);
-        float32x4_t val_vec3 = vdupq_n_f32(0.0f);
-        float32x4_t val_vec4 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec1 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec2 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec3 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec4 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec5 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec6 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec7 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec8 = vdupq_n_f32(0.0f);
 
         int j;
-        for (j = 0; j <= 768 - 16; j += 16) {
+        for (j = 0; j <= 768 - 32; j += 32) {
             // Prefetching
             __builtin_prefetch(&x[j + prefetch_distance]);
             __builtin_prefetch(&w[i * 768 + j + prefetch_distance]);
@@ -33,28 +37,59 @@ void matmul_32000_768(float* xout, float* x, float* w) {
             // 1st unroll
             float32x4_t x_vec1 = vld1q_f32(&x[j]);
             float32x4_t w_vec1 = vld1q_f32(&w[i * 768 + j]);
-            val_vec1 = vmlaq_f32(val_vec1, x_vec1, w_vec1);
+            // val_vec1 = vmlaq_f32(val_vec1, x_vec1, w_vec1);
 
             // 2nd unroll
             float32x4_t x_vec2 = vld1q_f32(&x[j + 4]);
             float32x4_t w_vec2 = vld1q_f32(&w[i * 768 + j + 4]);
-            val_vec2 = vmlaq_f32(val_vec2, x_vec2, w_vec2);
+            // val_vec2 = vmlaq_f32(val_vec2, x_vec2, w_vec2);
 
             // 3rd unroll
             float32x4_t x_vec3 = vld1q_f32(&x[j + 8]);
             float32x4_t w_vec3 = vld1q_f32(&w[i * 768 + j + 8]);
-            val_vec3 = vmlaq_f32(val_vec3, x_vec3, w_vec3);
+            // val_vec3 = vmlaq_f32(val_vec3, x_vec3, w_vec3);
 
             // 4th unroll
             float32x4_t x_vec4 = vld1q_f32(&x[j + 12]);
             float32x4_t w_vec4 = vld1q_f32(&w[i * 768 + j + 12]);
+            // val_vec4 = vmlaq_f32(val_vec4, x_vec4, w_vec4);
+
+            // 5th unroll
+            float32x4_t x_vec5 = vld1q_f32(&x[j + 16]);
+            float32x4_t w_vec5 = vld1q_f32(&w[i * 768 + j + 16]);
+            // val_vec5 = vmlaq_f32(val_vec5, x_vec5, w_vec5);
+
+            // 6th unroll
+            float32x4_t x_vec6 = vld1q_f32(&x[j + 20]);
+            float32x4_t w_vec6 = vld1q_f32(&w[i * 768 + j + 20]);
+            // val_vec6 = vmlaq_f32(val_vec6, x_vec6, w_vec6);
+
+            // 7th unroll
+            float32x4_t x_vec7 = vld1q_f32(&x[j + 24]);
+            float32x4_t w_vec7 = vld1q_f32(&w[i * 768 + j + 24]);
+            // val_vec7 = vmlaq_f32(val_vec7, x_vec7, w_vec7);
+
+            // 8th unroll
+            float32x4_t x_vec8 = vld1q_f32(&x[j + 28]);
+            float32x4_t w_vec8 = vld1q_f32(&w[i * 768 + j + 28]);
+            val_vec1 = vmlaq_f32(val_vec1, x_vec1, w_vec1);
+            val_vec2 = vmlaq_f32(val_vec2, x_vec2, w_vec2);
+            val_vec3 = vmlaq_f32(val_vec3, x_vec3, w_vec3);
             val_vec4 = vmlaq_f32(val_vec4, x_vec4, w_vec4);
+            val_vec5 = vmlaq_f32(val_vec5, x_vec5, w_vec5);
+            val_vec6 = vmlaq_f32(val_vec6, x_vec6, w_vec6);
+            val_vec7 = vmlaq_f32(val_vec7, x_vec7, w_vec7);
+            val_vec8 = vmlaq_f32(val_vec8, x_vec8, w_vec8);
         }
 
         // Combine all results
         val_vec1 = vaddq_f32(val_vec1, val_vec2);
         val_vec3 = vaddq_f32(val_vec3, val_vec4);
+        val_vec5 = vaddq_f32(val_vec5, val_vec6);
+        val_vec7 = vaddq_f32(val_vec7, val_vec8);
         val_vec1 = vaddq_f32(val_vec1, val_vec3);
+        val_vec5 = vaddq_f32(val_vec5, val_vec7);
+        val_vec1 = vaddq_f32(val_vec1, val_vec5);
 
         // Horizontal sum
         float32x2_t sum_vec = vadd_f32(vget_high_f32(val_vec1), vget_low_f32(val_vec1)); // Add high and low parts
@@ -84,13 +119,17 @@ void matmul_768_2048(float* xout, float* x, float* w) {
     int i;
 #pragma omp parallel for private(i)
     for (i = 0; i < 768; i++) {
-        float32x4_t val_vec1 = vdupq_n_f32(0.0f);
-        float32x4_t val_vec2 = vdupq_n_f32(0.0f);
-        float32x4_t val_vec3 = vdupq_n_f32(0.0f);
-        float32x4_t val_vec4 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec1 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec2 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec3 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec4 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec5 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec6 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec7 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec8 = vdupq_n_f32(0.0f);
 
         int j;
-        for (j = 0; j <= 2048 - 16; j += 16) {
+        for (j = 0; j <= 2048 - 32; j += 32) {
             // Prefetching
             __builtin_prefetch(&x[j + prefetch_distance]);
             __builtin_prefetch(&w[i * 2048 + j + prefetch_distance]);
@@ -98,28 +137,60 @@ void matmul_768_2048(float* xout, float* x, float* w) {
             // 1st unroll
             float32x4_t x_vec1 = vld1q_f32(&x[j]);
             float32x4_t w_vec1 = vld1q_f32(&w[i * 2048 + j]);
-            val_vec1 = vmlaq_f32(val_vec1, x_vec1, w_vec1);
+            // val_vec1 = vmlaq_f32(val_vec1, x_vec1, w_vec1);
 
             // 2nd unroll
             float32x4_t x_vec2 = vld1q_f32(&x[j + 4]);
             float32x4_t w_vec2 = vld1q_f32(&w[i * 2048 + j + 4]);
-            val_vec2 = vmlaq_f32(val_vec2, x_vec2, w_vec2);
+            // val_vec2 = vmlaq_f32(val_vec2, x_vec2, w_vec2);
 
             // 3rd unroll
             float32x4_t x_vec3 = vld1q_f32(&x[j + 8]);
             float32x4_t w_vec3 = vld1q_f32(&w[i * 2048 + j + 8]);
-            val_vec3 = vmlaq_f32(val_vec3, x_vec3, w_vec3);
+            // val_vec3 = vmlaq_f32(val_vec3, x_vec3, w_vec3);
 
             // 4th unroll
             float32x4_t x_vec4 = vld1q_f32(&x[j + 12]);
             float32x4_t w_vec4 = vld1q_f32(&w[i * 2048 + j + 12]);
+            // val_vec4 = vmlaq_f32(val_vec4, x_vec4, w_vec4);
+
+            // 5th unroll
+            float32x4_t x_vec5 = vld1q_f32(&x[j + 16]);
+            float32x4_t w_vec5 = vld1q_f32(&w[i * 2048 + j + 16]);
+            // val_vec5 = vmlaq_f32(val_vec5, x_vec5, w_vec5);
+
+            // 6th unroll
+            float32x4_t x_vec6 = vld1q_f32(&x[j + 20]);
+            float32x4_t w_vec6 = vld1q_f32(&w[i * 2048 + j + 20]);
+            // val_vec6 = vmlaq_f32(val_vec6, x_vec6, w_vec6);
+
+            // 7th unroll
+            float32x4_t x_vec7 = vld1q_f32(&x[j + 24]);
+            float32x4_t w_vec7 = vld1q_f32(&w[i * 2048 + j + 24]);
+            // val_vec7 = vmlaq_f32(val_vec7, x_vec7, w_vec7);
+
+            // 8th unroll
+            float32x4_t x_vec8 = vld1q_f32(&x[j + 28]);
+            float32x4_t w_vec8 = vld1q_f32(&w[i * 2048 + j + 28]);
+            val_vec1 = vmlaq_f32(val_vec1, x_vec1, w_vec1);
+            val_vec2 = vmlaq_f32(val_vec2, x_vec2, w_vec2);
+            val_vec3 = vmlaq_f32(val_vec3, x_vec3, w_vec3);
             val_vec4 = vmlaq_f32(val_vec4, x_vec4, w_vec4);
+            val_vec5 = vmlaq_f32(val_vec5, x_vec5, w_vec5);
+            val_vec6 = vmlaq_f32(val_vec6, x_vec6, w_vec6);
+            val_vec7 = vmlaq_f32(val_vec7, x_vec7, w_vec7);
+            val_vec8 = vmlaq_f32(val_vec8, x_vec8, w_vec8);
         }
 
         // Combine all results
         val_vec1 = vaddq_f32(val_vec1, val_vec2);
         val_vec3 = vaddq_f32(val_vec3, val_vec4);
+        val_vec5 = vaddq_f32(val_vec5, val_vec6);
+        val_vec7 = vaddq_f32(val_vec7, val_vec8);
         val_vec1 = vaddq_f32(val_vec1, val_vec3);
+        val_vec5 = vaddq_f32(val_vec5, val_vec7);
+        val_vec1 = vaddq_f32(val_vec1, val_vec5);
+
 
         // Horizontal sum
         float32x2_t sum_vec = vadd_f32(vget_high_f32(val_vec1), vget_low_f32(val_vec1)); // Add high and low parts
@@ -149,13 +220,17 @@ void matmul_768_768(float* xout, float* x, float* w) {
     int i;
 #pragma omp parallel for private(i)
     for (i = 0; i < 768; i++) {
-        float32x4_t val_vec1 = vdupq_n_f32(0.0f);
-        float32x4_t val_vec2 = vdupq_n_f32(0.0f);
-        float32x4_t val_vec3 = vdupq_n_f32(0.0f);
-        float32x4_t val_vec4 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec1 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec2 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec3 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec4 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec5 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec6 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec7 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec8 = vdupq_n_f32(0.0f);
 
         int j;
-        for (j = 0; j <= 768 - 16; j += 16) {
+        for (j = 0; j <= 768 - 32; j += 32) {
             // Prefetching
             __builtin_prefetch(&x[j + prefetch_distance]);
             __builtin_prefetch(&w[i * 768 + j + prefetch_distance]);
@@ -163,28 +238,60 @@ void matmul_768_768(float* xout, float* x, float* w) {
             // 1st unroll
             float32x4_t x_vec1 = vld1q_f32(&x[j]);
             float32x4_t w_vec1 = vld1q_f32(&w[i * 768 + j]);
-            val_vec1 = vmlaq_f32(val_vec1, x_vec1, w_vec1);
+            // val_vec1 = vmlaq_f32(val_vec1, x_vec1, w_vec1);
 
             // 2nd unroll
             float32x4_t x_vec2 = vld1q_f32(&x[j + 4]);
             float32x4_t w_vec2 = vld1q_f32(&w[i * 768 + j + 4]);
-            val_vec2 = vmlaq_f32(val_vec2, x_vec2, w_vec2);
+            // val_vec2 = vmlaq_f32(val_vec2, x_vec2, w_vec2);
 
             // 3rd unroll
             float32x4_t x_vec3 = vld1q_f32(&x[j + 8]);
             float32x4_t w_vec3 = vld1q_f32(&w[i * 768 + j + 8]);
-            val_vec3 = vmlaq_f32(val_vec3, x_vec3, w_vec3);
+            // val_vec3 = vmlaq_f32(val_vec3, x_vec3, w_vec3);
 
             // 4th unroll
             float32x4_t x_vec4 = vld1q_f32(&x[j + 12]);
             float32x4_t w_vec4 = vld1q_f32(&w[i * 768 + j + 12]);
+            // val_vec4 = vmlaq_f32(val_vec4, x_vec4, w_vec4);
+
+            // 5th unroll
+            float32x4_t x_vec5 = vld1q_f32(&x[j + 16]);
+            float32x4_t w_vec5 = vld1q_f32(&w[i * 768 + j + 16]);
+            // val_vec5 = vmlaq_f32(val_vec5, x_vec5, w_vec5);
+
+            // 6th unroll
+            float32x4_t x_vec6 = vld1q_f32(&x[j + 20]);
+            float32x4_t w_vec6 = vld1q_f32(&w[i * 768 + j + 20]);
+            // val_vec6 = vmlaq_f32(val_vec6, x_vec6, w_vec6);
+
+            // 7th unroll
+            float32x4_t x_vec7 = vld1q_f32(&x[j + 24]);
+            float32x4_t w_vec7 = vld1q_f32(&w[i * 768 + j + 24]);
+            // val_vec7 = vmlaq_f32(val_vec7, x_vec7, w_vec7);
+
+            // 8th unroll
+            float32x4_t x_vec8 = vld1q_f32(&x[j + 28]);
+            float32x4_t w_vec8 = vld1q_f32(&w[i * 768 + j + 28]);
+            val_vec1 = vmlaq_f32(val_vec1, x_vec1, w_vec1);
+            val_vec2 = vmlaq_f32(val_vec2, x_vec2, w_vec2);
+            val_vec3 = vmlaq_f32(val_vec3, x_vec3, w_vec3);
             val_vec4 = vmlaq_f32(val_vec4, x_vec4, w_vec4);
+            val_vec5 = vmlaq_f32(val_vec5, x_vec5, w_vec5);
+            val_vec6 = vmlaq_f32(val_vec6, x_vec6, w_vec6);
+            val_vec7 = vmlaq_f32(val_vec7, x_vec7, w_vec7);
+            val_vec8 = vmlaq_f32(val_vec8, x_vec8, w_vec8);
         }
 
         // Combine all results
         val_vec1 = vaddq_f32(val_vec1, val_vec2);
         val_vec3 = vaddq_f32(val_vec3, val_vec4);
+        val_vec5 = vaddq_f32(val_vec5, val_vec6);
+        val_vec7 = vaddq_f32(val_vec7, val_vec8);
         val_vec1 = vaddq_f32(val_vec1, val_vec3);
+        val_vec5 = vaddq_f32(val_vec5, val_vec7);
+        val_vec1 = vaddq_f32(val_vec1, val_vec5);
+
 
         // Horizontal sum
         float32x2_t sum_vec = vadd_f32(vget_high_f32(val_vec1), vget_low_f32(val_vec1)); // Add high and low parts
@@ -214,13 +321,17 @@ void matmul_2048_768(float* xout, float* x, float* w) {
     int i;
 #pragma omp parallel for private(i)
     for (i = 0; i < 2048; i++) {
-        float32x4_t val_vec1 = vdupq_n_f32(0.0f);
-        float32x4_t val_vec2 = vdupq_n_f32(0.0f);
-        float32x4_t val_vec3 = vdupq_n_f32(0.0f);
-        float32x4_t val_vec4 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec1 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec2 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec3 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec4 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec5 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec6 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec7 = vdupq_n_f32(0.0f);
+        register float32x4_t val_vec8 = vdupq_n_f32(0.0f);
 
         int j;
-        for (j = 0; j <= 768 - 16; j += 16) {
+        for (j = 0; j <= 768 - 32; j += 32) {
             // Prefetching
             __builtin_prefetch(&x[j + prefetch_distance]);
             __builtin_prefetch(&w[i * 768 + j + prefetch_distance]);
@@ -228,28 +339,60 @@ void matmul_2048_768(float* xout, float* x, float* w) {
             // 1st unroll
             float32x4_t x_vec1 = vld1q_f32(&x[j]);
             float32x4_t w_vec1 = vld1q_f32(&w[i * 768 + j]);
-            val_vec1 = vmlaq_f32(val_vec1, x_vec1, w_vec1);
+            // val_vec1 = vmlaq_f32(val_vec1, x_vec1, w_vec1);
 
             // 2nd unroll
             float32x4_t x_vec2 = vld1q_f32(&x[j + 4]);
             float32x4_t w_vec2 = vld1q_f32(&w[i * 768 + j + 4]);
-            val_vec2 = vmlaq_f32(val_vec2, x_vec2, w_vec2);
+            // val_vec2 = vmlaq_f32(val_vec2, x_vec2, w_vec2);
 
             // 3rd unroll
             float32x4_t x_vec3 = vld1q_f32(&x[j + 8]);
             float32x4_t w_vec3 = vld1q_f32(&w[i * 768 + j + 8]);
-            val_vec3 = vmlaq_f32(val_vec3, x_vec3, w_vec3);
+            // val_vec3 = vmlaq_f32(val_vec3, x_vec3, w_vec3);
 
             // 4th unroll
             float32x4_t x_vec4 = vld1q_f32(&x[j + 12]);
             float32x4_t w_vec4 = vld1q_f32(&w[i * 768 + j + 12]);
+            // val_vec4 = vmlaq_f32(val_vec4, x_vec4, w_vec4);
+
+            // 5th unroll
+            float32x4_t x_vec5 = vld1q_f32(&x[j + 16]);
+            float32x4_t w_vec5 = vld1q_f32(&w[i * 768 + j + 16]);
+            // val_vec5 = vmlaq_f32(val_vec5, x_vec5, w_vec5);
+
+            // 6th unroll
+            float32x4_t x_vec6 = vld1q_f32(&x[j + 20]);
+            float32x4_t w_vec6 = vld1q_f32(&w[i * 768 + j + 20]);
+            // val_vec6 = vmlaq_f32(val_vec6, x_vec6, w_vec6);
+
+            // 7th unroll
+            float32x4_t x_vec7 = vld1q_f32(&x[j + 24]);
+            float32x4_t w_vec7 = vld1q_f32(&w[i * 768 + j + 24]);
+            // val_vec7 = vmlaq_f32(val_vec7, x_vec7, w_vec7);
+
+            // 8th unroll
+            float32x4_t x_vec8 = vld1q_f32(&x[j + 28]);
+            float32x4_t w_vec8 = vld1q_f32(&w[i * 768 + j + 28]);
+            val_vec1 = vmlaq_f32(val_vec1, x_vec1, w_vec1);
+            val_vec2 = vmlaq_f32(val_vec2, x_vec2, w_vec2);
+            val_vec3 = vmlaq_f32(val_vec3, x_vec3, w_vec3);
             val_vec4 = vmlaq_f32(val_vec4, x_vec4, w_vec4);
+            val_vec5 = vmlaq_f32(val_vec5, x_vec5, w_vec5);
+            val_vec6 = vmlaq_f32(val_vec6, x_vec6, w_vec6);
+            val_vec7 = vmlaq_f32(val_vec7, x_vec7, w_vec7);
+            val_vec8 = vmlaq_f32(val_vec8, x_vec8, w_vec8);
         }
 
         // Combine all results
         val_vec1 = vaddq_f32(val_vec1, val_vec2);
         val_vec3 = vaddq_f32(val_vec3, val_vec4);
+        val_vec5 = vaddq_f32(val_vec5, val_vec6);
+        val_vec7 = vaddq_f32(val_vec7, val_vec8);
         val_vec1 = vaddq_f32(val_vec1, val_vec3);
+        val_vec5 = vaddq_f32(val_vec5, val_vec7);
+        val_vec1 = vaddq_f32(val_vec1, val_vec5);
+
 
         // Horizontal sum
         float32x2_t sum_vec = vadd_f32(vget_high_f32(val_vec1), vget_low_f32(val_vec1)); // Add high and low parts
