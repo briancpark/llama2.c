@@ -44,7 +44,7 @@ runmkl: run.c
 .PHONY: myrun
 myrun: run.c
 	$(CC) -Ofast -fopenmp -g -march=native -DMY_OPT -o run run.c microkernels.c -lm -DMY_OPT -Wl,--no-as-needed -lmkl_gf_lp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl
-	$(CC) -Ofast -fopenmp -g -march=native -DMY_OPT -o runq runq.c -lm 
+	$(CC) -Ofast -fopenmp -g -march=native -DMY_OPT -o runq runq.c -lm -DMY_OPT -Wl,--no-as-needed -lmkl_gf_lp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl
 
 .PHONY: microbenchmarks
 microbenchmarks: microbenchmarks.c

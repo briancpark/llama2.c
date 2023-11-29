@@ -14,6 +14,12 @@
     #include <unistd.h>
     #include <sys/mman.h>
 #endif
+
+#if MKL || MY_OPT
+    #include <immintrin.h>
+    #include "mkl.h"
+#endif
+
 // ----------------------------------------------------------------------------
 // Globals
 int GS = 0; // group size global for quantization of the weights
@@ -91,6 +97,24 @@ typedef struct {
 void malloc_run_state(RunState* s, Config* p) {
     // we calloc instead of malloc to keep valgrind happy
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
+#if MKL || MY_OPT
+    s->x = mkl_malloc(p->dim * sizeof(float), 64);
+    s->xb = mkl_malloc(p->dim * sizeof(float), 64);
+    s->xb2 = mkl_malloc(p->dim * sizeof(float), 64);
+    s->hb = mkl_malloc(p->hidden_dim * sizeof(float), 64);
+    s->hb2 = mkl_malloc(p->hidden_dim * sizeof(float), 64);
+    s->xq.q = mkl_malloc(p->dim * sizeof(int8_t), 64);
+    s->xq.s = mkl_malloc(p->dim * sizeof(float), 64);
+    s->hq.q = mkl_malloc(p->hidden_dim * sizeof(int8_t), 64);
+    s->hq.s = mkl_malloc(p->hidden_dim * sizeof(float), 64);
+    s->q = mkl_malloc(p->dim * sizeof(float), 64);
+    s->k = mkl_malloc((p->dim * p->n_kv_heads) / p->n_heads * sizeof(float), 64);
+    s->v = mkl_malloc((p->dim * p->n_kv_heads) / p->n_heads * sizeof(float), 64);
+    s->att = mkl_malloc(p->n_heads * p->seq_len * sizeof(float), 64);
+    s->logits = mkl_malloc(p->vocab_size * sizeof(float), 64);
+     s->key_cache = mkl_malloc(p->n_layers * p->seq_len * kv_dim * sizeof(float), 64);
+    s->value_cache = mkl_malloc(p->n_layers * p->seq_len * kv_dim * sizeof(float), 64);
+#else
     s->x = calloc(p->dim, sizeof(float));
     s->xb = calloc(p->dim, sizeof(float));
     s->xb2 = calloc(p->dim, sizeof(float));
@@ -105,6 +129,7 @@ void malloc_run_state(RunState* s, Config* p) {
     s->logits = calloc(p->vocab_size, sizeof(float));
     s->key_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
     s->value_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
+#endif
     // ensure all mallocs went fine
     if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
      || !s->k || !s->v || !s->att || !s->logits || !s->key_cache
@@ -115,6 +140,24 @@ void malloc_run_state(RunState* s, Config* p) {
 }
 
 void free_run_state(RunState* s) {
+#if MKL || MY_OPT
+    mkl_free(s->x);
+    mkl_free(s->xb);
+    mkl_free(s->xb2);
+    mkl_free(s->hb);
+    mkl_free(s->hb2);
+    mkl_free(s->xq.q);
+    mkl_free(s->xq.s);
+    mkl_free(s->hq.q);
+    mkl_free(s->hq.s);
+    mkl_free(s->q);
+    mkl_free(s->k);
+    mkl_free(s->v);
+    mkl_free(s->att);
+    mkl_free(s->logits);
+    mkl_free(s->key_cache);
+    mkl_free(s->value_cache);
+#else
     free(s->x);
     free(s->xb);
     free(s->xb2);
@@ -131,6 +174,7 @@ void free_run_state(RunState* s) {
     free(s->logits);
     free(s->key_cache);
     free(s->value_cache);
+#endif
 }
 
 // ----------------------------------------------------------------------------
