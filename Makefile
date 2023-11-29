@@ -17,7 +17,7 @@ NDK_TOOL       = $(NDK)/toolchains/llvm/prebuilt/linux-x86_64/bin/clang-17
 NDK_SYSROOT    = $(NDK)/toolchains/llvm/prebuilt/linux-x86_64/sysroot
 
 # Compiler and Linker Flags
-CFLAGS         = $(MODE_FLAGS) -std=c99 -fPIE -Wall --target=$(NDK_TARGET) --sysroot=$(NDK_SYSROOT)
+CFLAGS         = $(MODE_FLAGS) --target=aarch64-unknown-linux-gui -mcpu=cortex-a76 -std=c99 -fPIE -Wall --target=$(NDK_TARGET) --sysroot=$(NDK_SYSROOT)
 LDFLAGS        = $(MODE_FLAGS) -fPIE -pie --target=$(NDK_TARGET) --sysroot=$(NDK_SYSROOT)
 
 
@@ -56,8 +56,14 @@ runfast: run.c
 # OMP_NUM_THREADS=4 ./run out/model.bin
 .PHONY: runomp
 runomp: run.c
-	$(NDK_TOOL) $(CFLAGS) $(LDFLAGS) -Ofast -fopenmp -march=native run.c  -lm  -o run
-	$(NDK_TOOL) $(CFLAGS) $(LDFLAGS) -Ofast -fopenmp -march=native runq.c  -lm  -o runq
+	$(NDK_TOOL) $(CFLAGS) $(LDFLAGS) -Ofast -static-openmp -fopenmp run.c  -lm  -o run
+	$(NDK_TOOL) $(CFLAGS) $(LDFLAGS) -Ofast -static-openmp -fopenmp runq.c  -lm  -o runq
+
+.PHONY: myrun
+myrun: run.c
+	$(NDK_TOOL) $(CFLAGS) $(LDFLAGS) -Ofast -static-openmp -fopenmp -DMY_OPT -o run run.c microkernels.c -lm -mfpu=neon -mfloat-abi=hard
+	$(NDK_TOOL) $(CFLAGS) $(LDFLAGS) -Ofast -static-openmp -fopenmp -DMY_OPT -o runq runq.c -lm -mfpu=neon -mfloat-abi=hard
+
 
 .PHONY: win64
 win64:
