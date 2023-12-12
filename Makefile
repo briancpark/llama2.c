@@ -36,11 +36,16 @@ runomp: run.c
 	$(CC) -Ofast -fopenmp -march=native run.c  -lm  -o run
 	$(CC) -Ofast -fopenmp -march=native runq.c  -lm  -o runq
 
-.PHONY: runomp
+.PHONY: runcuda
 runcuda: run.cu
 	
 	nvcc -O3 -o run run.cu -lm -arch=sm_70 -lcublas -use_fast_math
 	# nvcc -O3 -o runq runq.cu -lm
+
+.PHONY: microbenchmarks
+microbenchmarks: microbenchmarks.cu
+	nvcc -O3 -o microbenchmarks microbenchmarks.cu microkernels.cu -lm -arch=sm_70 -lcublas -use_fast_math
+
 
 .PHONY: win64
 win64:

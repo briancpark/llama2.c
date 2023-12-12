@@ -1,0 +1,1 @@
+void matmul(half *xout, half *x, half *w, int n, int d);
