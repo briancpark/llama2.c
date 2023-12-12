@@ -36,6 +36,18 @@ runomp: run.c
 	$(CC) -Ofast -fopenmp -march=native run.c  -lm  -o run
 	$(CC) -Ofast -fopenmp -march=native runq.c  -lm  -o runq
 
+
+.PHONY: runfp16
+runfp16: runfp16.c
+	$(CC) -Ofast -fopenmp -march=native runfp16.c  -lm -o run
+	# $(CC) -Ofast -fopenmp -march=native runq.c  -lm -o runq
+
+
+.PHONY: runfused
+runfused: runfused.c
+	$(CC) -Ofast -fopenmp -march=native -DACCELERATE_NEW_LAPACK runfused.c microkernels.c -lm -framework Accelerate -o run
+	$(CC) -Ofast -fopenmp -march=native -DACCELERATE_NEW_LAPACK runq.c  -lm -framework Accelerate -o runq
+
 .PHONY: runaccelerate
 runaccelerate: run.c
 	$(CC) -Ofast -fopenmp -g -march=native -DACCELERATE_NEW_LAPACK -o run run.c -lm -framework Accelerate -mfpu=neon -mfloat-abi=hard
@@ -43,7 +55,7 @@ runaccelerate: run.c
 
 .PHONY: myrun
 myrun: run.c
-	$(CC) -Ofast -fopenmp -g -march=native -DMY_OPT -o run run.c microkernels.c -lm -mfpu=neon -mfloat-abi=hard
+	$(CC) -Ofast -fopenmp -framework Accelerate  -g -march=native -DMY_OPT -o run run.c microkernels.c -lm -mfpu=neon -mfloat-abi=hard
 	$(CC) -Ofast -fopenmp -g -march=native -DMY_OPT -o runq runq.c -lm -mfpu=neon -mfloat-abi=hard
 
 .PHONY: microbenchmarks

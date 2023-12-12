@@ -13,13 +13,9 @@
     #include <unistd.h>
     #include <sys/mman.h>
 #endif
-#ifdef ACCELERATE_NEW_LAPACK
-    #include <Accelerate/Accelerate.h>
-#endif // ACCELERATE_NEW_LAPACK
 
-#ifdef MY_OPT
-    #include "microkernels.h"
-#endif // MY_OPT
+#include <Accelerate/Accelerate.h>
+#include "microkernels.h"
 
 // ----------------------------------------------------------------------------
 // Transformer model
@@ -83,7 +79,6 @@ typedef struct {
 } Transformer;
 
 void malloc_run_state(RunState* s, Config* p) {
-    size_t ALIGNMENT = 128;
     // we calloc instead of malloc to keep valgrind happy
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
     s->x = calloc(p->dim, sizeof(float));
@@ -102,18 +97,6 @@ void malloc_run_state(RunState* s, Config* p) {
         fprintf(stderr, "malloc failed!\n");
         exit(EXIT_FAILURE);
     }
-
-    posix_memalign((void**)&s->x, ALIGNMENT, p->dim * sizeof(float));
-    posix_memalign((void**)&s->xb, ALIGNMENT, p->dim * sizeof(float));
-    posix_memalign((void**)&s->xb2, ALIGNMENT, p->dim * sizeof(float));
-    posix_memalign((void**)&s->hb, ALIGNMENT, p->hidden_dim * sizeof(float));
-    posix_memalign((void**)&s->hb2, ALIGNMENT, p->hidden_dim * sizeof(float));
-    posix_memalign((void**)&s->q, ALIGNMENT, p->dim * sizeof(float));
-    posix_memalign((void**)&s->key_cache, ALIGNMENT, p->n_layers * p->seq_len * kv_dim * sizeof(float));
-    posix_memalign((void**)&s->value_cache, ALIGNMENT, p->n_layers * p->seq_len * kv_dim * sizeof(float));
-    posix_memalign((void**)&s->att, ALIGNMENT, p->n_heads * p->seq_len * sizeof(float));
-    posix_memalign((void**)&s->logits, ALIGNMENT, p->vocab_size * sizeof(float));
-
 }
 
 void free_run_state(RunState* s) {
@@ -131,6 +114,11 @@ void free_run_state(RunState* s) {
 
 void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared_weights) {
     int head_size = p->dim / p->n_heads;
+    // printf("head_size: %d\n", head_size);
+    // printf("dim: %d\n", p->dim);
+    // printf("n_heads: %d\n", p->n_heads);
+    // printf("n_kv_heads: %d\n", p->n_kv_heads);
+    // printf("hidden_dim: %d\n", p->hidden_dim);
     // make sure the multiplications below are done in 64bit to fit the parameter counts of 13B+ models
     unsigned long long n_layers = p->n_layers;
     w->token_embedding_table = ptr;
@@ -200,24 +188,20 @@ void free_transformer(Transformer* t) {
 // ----------------------------------------------------------------------------
 // neural net blocks; the dynamics of the Transformer
 
-#ifdef MY_OPT
-
-#else // MY_OPT
-void rmsnorm(float* o, float* x, float* weight, int size) {
-    // calculate sum of squares
-    float ss = 0.0f;
-    for (int j = 0; j < size; j++) {
-        ss += x[j] * x[j];
-    }
-    ss /= size;
-    ss += 1e-5f;
-    ss = 1.0f / sqrtf(ss);
-    // normalize and scale
-    for (int j = 0; j < size; j++) {
-        o[j] = weight[j] * (ss * x[j]);
-    }
-}
-#endif // MY_OPT
+// void rmsnorm(float* o, float* x, float* weight, int size) {
+//     // calculate sum of squares
+//     float ss = 0.0f;
+//     for (int j = 0; j < size; j++) {
+//         ss += x[j] * x[j];
+//     }
+//     ss /= size;
+//     ss += 1e-5f;
+//     ss = 1.0f / sqrtf(ss);
+//     // normalize and scale
+//     for (int j = 0; j < size; j++) {
+//         o[j] = weight[j] * (ss * x[j]);
+//     }
+// }
 
 void softmax(float* x, int size) {
     // find max value (for numerical stability)
@@ -238,25 +222,18 @@ void softmax(float* x, int size) {
         x[i] /= sum;
     }
 }
-
-
-#ifdef MY_OPT
-
-#else // MY_OPT
-void matmul(float* xout, float* x, float* w, int n, int d) {
-    // W (d,n) @ x (n,) -> xout (d,)
-    // by far the most amount of time is spent inside this little function
-    int i;
-    #pragma omp parallel for private(i)
-    for (i = 0; i < d; i++) {
-        float val = 0.0f;
+void gemm(float* A, float* B, float* C, int m, int n, int k) {
+    for (int i = 0; i < m; i++) {
         for (int j = 0; j < n; j++) {
-            val += w[i * n + j] * x[j];
+            float sum = 0.0f;
+            for (int l = 0; l < k; l++) {
+                sum += A[i * k + l] * B[l * n + j];
+            }
+            C[i * n + j] = sum;
         }
-        xout[i] = val;
     }
 }
-#endif // MY_OPT
+
 
 float* forward(Transformer* transformer, int token, int pos) {
 
@@ -287,15 +264,9 @@ float* forward(Transformer* transformer, int token, int pos) {
         s->v = s->value_cache + loff + pos * kv_dim;
 
         // qkv matmuls for this position
-#ifdef ACCELERATE_NEW_LAPACK
-        cblas_sgemv(CblasRowMajor, CblasNoTrans, p->n_heads * head_size, dim, 1.0f, w->wq + l*dim*dim, dim, s->xb, 1, 0.0f, s->q, 1);
-        cblas_sgemv(CblasRowMajor, CblasNoTrans, p->n_kv_heads * head_size, dim, 1.0f, w->wk + l*dim*dim, dim, s->xb, 1, 0.0f, s->k, 1);
-        cblas_sgemv(CblasRowMajor, CblasNoTrans, p->n_kv_heads * head_size, dim, 1.0f, w->wv + l*dim*dim, dim, s->xb, 1, 0.0f, s->v, 1);
-#else // ACCELERATE_NEW_LAPACK
         matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
         matmul(s->k, s->xb, w->wk + l*dim*kv_dim, dim, kv_dim);
         matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
-#endif // ACCELERATE_NEW_LAPACK
 
         // RoPE relative positional encoding: complex-valued rotate q and k in each head
         for (int i = 0; i < dim; i+=2) {
@@ -314,6 +285,7 @@ float* forward(Transformer* transformer, int token, int pos) {
             }
         }
 
+
         // multihead attention. iterate over all heads
         int h;
         #pragma omp parallel for private(h)
@@ -323,7 +295,9 @@ float* forward(Transformer* transformer, int token, int pos) {
             // attention scores for this head
             float* att = s->att + h * p->seq_len;
             // iterate over all timesteps, including the current one
+            // printf("seq_len: %d\n", p->seq_len);
             for (int t = 0; t <= pos; t++) {
+                // printf("t: %d\n", t);
                 // get the key vector for this head and at this timestep
                 float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
                 // calculate the attention score as the dot product of q and k
@@ -335,8 +309,6 @@ float* forward(Transformer* transformer, int token, int pos) {
                 // save the score to the attention buffer
                 att[t] = score;
             }
-
-            // softmax the scores to get attention weights, from 0..pos inclusively
             softmax(att, pos + 1);
 
             // weighted sum of the values, store back into xb
@@ -355,11 +327,7 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         // final matmul to get the output of the attention
-#ifdef ACCELERATE_NEW_LAPACK
-        cblas_sgemv(CblasRowMajor, CblasNoTrans, dim, p->n_heads * head_size, 1.0f, w->wo + l*dim*dim, dim, s->xb, 1, 0.0f, s->xb2, 1);
-#else // ACCELERATE_NEW_LAPACK
         matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
-#endif // ACCELERATE_NEW_LAPACK
 
         // residual connection back into x
         for (int i = 0; i < dim; i++) {
@@ -371,30 +339,24 @@ float* forward(Transformer* transformer, int token, int pos) {
 
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
-#ifdef ACCELERATE_NEW_LAPACK
-        cblas_sgemv(CblasRowMajor, CblasNoTrans, hidden_dim, dim, 1.0f, w->w1 + l*dim*hidden_dim, dim, s->xb, 1, 0.0f, s->hb, 1);
-        cblas_sgemv(CblasRowMajor, CblasNoTrans, hidden_dim, dim, 1.0f, w->w3 + l*dim*hidden_dim, dim, s->xb, 1, 0.0f, s->hb2, 1);
-#else // ACCELERATE_NEW_LAPACK
-        matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
-        matmul(s->hb2, s->xb, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
-#endif // ACCELERATE_NEW_LAPACK
 
-        // SwiGLU non-linearity
-        for (int i = 0; i < hidden_dim; i++) {
-            float val = s->hb[i];
-            // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
-            val *= (1.0f / (1.0f + expf(-val)));
-            // elementwise multiply with w3(x)
-            val *= s->hb2[i];
-            s->hb[i] = val;
-        }
+        matmul_swiglu(s->hb, s->hb2, s->xb, w->w1 + l*dim*hidden_dim, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
+
+        // matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
+        // matmul(s->hb2, s->xb, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
+
+        // // SwiGLU non-linearity
+        // for (int i = 0; i < hidden_dim; i++) {
+        //     float val = s->hb[i];
+        //     // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
+        //     val *= (1.0f / (1.0f + expf(-val)));
+        //     // elementwise multiply with w3(x)
+        //     val *= s->hb2[i];
+        //     s->hb[i] = val;
+        // }
 
         // final matmul to get the output of the ffn
-#ifdef ACCELERATE_NEW_LAPACK
-        cblas_sgemv(CblasRowMajor, CblasNoTrans, dim, hidden_dim, 1.0f, w->w2 + l*dim*hidden_dim, hidden_dim, s->hb, 1, 0.0f, s->xb, 1);
-#else // ACCELERATE_NEW_LAPACK
         matmul(s->xb, s->hb, w->w2 + l*dim*hidden_dim, hidden_dim, dim);
-#endif // ACCELERATE_NEW_LAPACK
 
         // residual connection
         for (int i = 0; i < dim; i++) {
@@ -406,11 +368,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     rmsnorm(x, x, w->rms_final_weight, dim);
 
     // classifier into logits
-#ifdef ACCELERATE_NEW_LAPACK
-    cblas_sgemv(CblasRowMajor, CblasNoTrans, p->vocab_size, dim, 1.0f, w->wcls, dim, x, 1, 0.0f, s->logits, 1);
-#else // ACCELERATE_NEW_LAPACK
     matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
-#endif // ACCELERATE_NEW_LAPACK
     return s->logits;
 }
 
@@ -797,8 +755,9 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     int next;        // will store the next token in the sequence
     int token = prompt_tokens[0]; // kick off with the first token in the prompt
     int pos = 0;     // position in the sequence
-    while (pos < steps) {
 
+    while (pos < steps) {
+        // printf("pos: %d\n", pos);
         // forward the transformer to get logits for the next token
         float* logits = forward(transformer, token, pos);
 

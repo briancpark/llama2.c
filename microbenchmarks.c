@@ -18,6 +18,7 @@
 #define WARMUP_TRIALS 10
 
 #define BLAS
+// #define BNNS
 
 int main(int argc, char *argv[]) {
 
@@ -31,6 +32,9 @@ int main(int argc, char *argv[]) {
     w = (float*)malloc(m * n * sizeof(float));
     x = (float*)malloc(n * sizeof(float));
     xout = (float*)malloc(m * sizeof(float));
+    // posix_memalign((void**)&w, ALIGNMENT, m * n * sizeof(float));
+    // posix_memalign((void**)&x, ALIGNMENT, n * sizeof(float));
+    // posix_memalign((void**)&xout, ALIGNMENT, m * sizeof(float));
 
     if (w == NULL || x == NULL || xout == NULL) {
         fprintf(stderr, "Memory allocation failed\n");

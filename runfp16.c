@@ -36,40 +36,40 @@ typedef struct {
 
 typedef struct {
     // token embedding table
-    float* token_embedding_table;    // (vocab_size, dim)
+    __fp16* token_embedding_table;    // (vocab_size, dim)
     // weights for rmsnorms
-    float* rms_att_weight; // (layer, dim) rmsnorm weights
-    float* rms_ffn_weight; // (layer, dim)
+    __fp16* rms_att_weight; // (layer, dim) rmsnorm weights
+    __fp16* rms_ffn_weight; // (layer, dim)
     // weights for matmuls. note dim == n_heads * head_size
-    float* wq; // (layer, dim, n_heads * head_size)
-    float* wk; // (layer, dim, n_kv_heads * head_size)
-    float* wv; // (layer, dim, n_kv_heads * head_size)
-    float* wo; // (layer, n_heads * head_size, dim)
+    __fp16* wq; // (layer, dim, n_heads * head_size)
+    __fp16* wk; // (layer, dim, n_kv_heads * head_size)
+    __fp16* wv; // (layer, dim, n_kv_heads * head_size)
+    __fp16* wo; // (layer, n_heads * head_size, dim)
     // weights for ffn
-    float* w1; // (layer, hidden_dim, dim)
-    float* w2; // (layer, dim, hidden_dim)
-    float* w3; // (layer, hidden_dim, dim)
+    __fp16* w1; // (layer, hidden_dim, dim)
+    __fp16* w2; // (layer, dim, hidden_dim)
+    __fp16* w3; // (layer, hidden_dim, dim)
     // final rmsnorm
-    float* rms_final_weight; // (dim,)
+    __fp16* rms_final_weight; // (dim,)
     // (optional) classifier weights for the logits, on the last layer
-    float* wcls;
+    __fp16* wcls;
 } TransformerWeights;
 
 typedef struct {
     // current wave of activations
-    float *x; // activation at current time stamp (dim,)
-    float *xb; // same, but inside a residual branch (dim,)
-    float *xb2; // an additional buffer just for convenience (dim,)
-    float *hb; // buffer for hidden dimension in the ffn (hidden_dim,)
-    float *hb2; // buffer for hidden dimension in the ffn (hidden_dim,)
-    float *q; // query (dim,)
-    float *k; // key (dim,)
-    float *v; // value (dim,)
-    float *att; // buffer for scores/attention values (n_heads, seq_len)
-    float *logits; // output logits
+    __fp16 *x; // activation at current time stamp (dim,)
+    __fp16 *xb; // same, but inside a residual branch (dim,)
+    __fp16 *xb2; // an additional buffer just for convenience (dim,)
+    __fp16 *hb; // buffer for hidden dimension in the ffn (hidden_dim,)
+    __fp16 *hb2; // buffer for hidden dimension in the ffn (hidden_dim,)
+    __fp16 *q; // query (dim,)
+    __fp16 *k; // key (dim,)
+    __fp16 *v; // value (dim,)
+    __fp16 *att; // buffer for scores/attention values (n_heads, seq_len)
+    __fp16 *logits; // output logits
     // kv cache
-    float* key_cache;   // (layer, seq_len, dim)
-    float* value_cache; // (layer, seq_len, dim)
+    __fp16* key_cache;   // (layer, seq_len, dim)
+    __fp16* value_cache; // (layer, seq_len, dim)
 } RunState;
 
 typedef struct {
@@ -78,7 +78,7 @@ typedef struct {
     RunState state; // buffers for the "wave" of activations in the forward pass
     // some more state needed to properly clean up the memory mapping (sigh)
     int fd; // file descriptor for memory mapping
-    float* data; // memory mapped data pointer
+    __fp16* data; // memory mapped data pointer
     ssize_t file_size; // size of the checkpoint file in bytes
 } Transformer;
 
@@ -86,16 +86,16 @@ void malloc_run_state(RunState* s, Config* p) {
     size_t ALIGNMENT = 128;
     // we calloc instead of malloc to keep valgrind happy
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
-    s->x = calloc(p->dim, sizeof(float));
-    s->xb = calloc(p->dim, sizeof(float));
-    s->xb2 = calloc(p->dim, sizeof(float));
-    s->hb = calloc(p->hidden_dim, sizeof(float));
-    s->hb2 = calloc(p->hidden_dim, sizeof(float));
-    s->q = calloc(p->dim, sizeof(float));
-    s->key_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
-    s->value_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
-    s->att = calloc(p->n_heads * p->seq_len, sizeof(float));
-    s->logits = calloc(p->vocab_size, sizeof(float));
+    s->x = calloc(p->dim, sizeof(__fp16));
+    s->xb = calloc(p->dim, sizeof(__fp16));
+    s->xb2 = calloc(p->dim, sizeof(__fp16));
+    s->hb = calloc(p->hidden_dim, sizeof(__fp16));
+    s->hb2 = calloc(p->hidden_dim, sizeof(__fp16));
+    s->q = calloc(p->dim, sizeof(__fp16));
+    s->key_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(__fp16));
+    s->value_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(__fp16));
+    s->att = calloc(p->n_heads * p->seq_len, sizeof(__fp16));
+    s->logits = calloc(p->vocab_size, sizeof(__fp16));
     // ensure all mallocs went fine
     if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
      || !s->key_cache || !s->value_cache || !s->att || !s->logits) {
@@ -103,17 +103,16 @@ void malloc_run_state(RunState* s, Config* p) {
         exit(EXIT_FAILURE);
     }
 
-    posix_memalign((void**)&s->x, ALIGNMENT, p->dim * sizeof(float));
-    posix_memalign((void**)&s->xb, ALIGNMENT, p->dim * sizeof(float));
-    posix_memalign((void**)&s->xb2, ALIGNMENT, p->dim * sizeof(float));
-    posix_memalign((void**)&s->hb, ALIGNMENT, p->hidden_dim * sizeof(float));
-    posix_memalign((void**)&s->hb2, ALIGNMENT, p->hidden_dim * sizeof(float));
-    posix_memalign((void**)&s->q, ALIGNMENT, p->dim * sizeof(float));
-    posix_memalign((void**)&s->key_cache, ALIGNMENT, p->n_layers * p->seq_len * kv_dim * sizeof(float));
-    posix_memalign((void**)&s->value_cache, ALIGNMENT, p->n_layers * p->seq_len * kv_dim * sizeof(float));
-    posix_memalign((void**)&s->att, ALIGNMENT, p->n_heads * p->seq_len * sizeof(float));
-    posix_memalign((void**)&s->logits, ALIGNMENT, p->vocab_size * sizeof(float));
-
+    posix_memalign((void**)&s->x, ALIGNMENT, p->dim * sizeof(__fp16));
+    posix_memalign((void**)&s->xb, ALIGNMENT, p->dim * sizeof(__fp16));
+    posix_memalign((void**)&s->xb2, ALIGNMENT, p->dim * sizeof(__fp16));
+    posix_memalign((void**)&s->hb, ALIGNMENT, p->hidden_dim * sizeof(__fp16));
+    posix_memalign((void**)&s->hb2, ALIGNMENT, p->hidden_dim * sizeof(__fp16));
+    posix_memalign((void**)&s->q, ALIGNMENT, p->dim * sizeof(__fp16));
+    posix_memalign((void**)&s->key_cache, ALIGNMENT, p->n_layers * p->seq_len * kv_dim * sizeof(__fp16));
+    posix_memalign((void**)&s->value_cache, ALIGNMENT, p->n_layers * p->seq_len * kv_dim * sizeof(__fp16));
+    posix_memalign((void**)&s->att, ALIGNMENT, p->n_heads * p->seq_len * sizeof(__fp16));
+    posix_memalign((void**)&s->logits, ALIGNMENT, p->vocab_size * sizeof(__fp16));
 }
 
 void free_run_state(RunState* s) {
@@ -129,7 +128,7 @@ void free_run_state(RunState* s) {
     free(s->value_cache);
 }
 
-void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared_weights) {
+void memory_map_weights(TransformerWeights *w, Config* p, __fp16* ptr, int shared_weights) {
     int head_size = p->dim / p->n_heads;
     // make sure the multiplications below are done in 64bit to fit the parameter counts of 13B+ models
     unsigned long long n_layers = p->n_layers;
@@ -161,7 +160,7 @@ void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared
 }
 
 void read_checkpoint(char* checkpoint, Config* config, TransformerWeights* weights,
-                     int* fd, float** data, ssize_t* file_size) {
+                     int* fd, __fp16** data, ssize_t* file_size) {
     FILE *file = fopen(checkpoint, "rb");
     if (!file) { fprintf(stderr, "Couldn't open file %s\n", checkpoint); exit(EXIT_FAILURE); }
     // read in the config header
@@ -178,7 +177,7 @@ void read_checkpoint(char* checkpoint, Config* config, TransformerWeights* weigh
     if (*fd == -1) { fprintf(stderr, "open failed!\n"); exit(EXIT_FAILURE); }
     *data = mmap(NULL, *file_size, PROT_READ, MAP_PRIVATE, *fd, 0);
     if (*data == MAP_FAILED) { fprintf(stderr, "mmap failed!\n"); exit(EXIT_FAILURE); }
-    float* weights_ptr = *data + sizeof(Config)/sizeof(float);
+    __fp16* weights_ptr = *data + sizeof(Config)/sizeof(__fp16);
     memory_map_weights(weights, config, weights_ptr, shared_weights);
 }
 
@@ -203,39 +202,40 @@ void free_transformer(Transformer* t) {
 #ifdef MY_OPT
 
 #else // MY_OPT
-void rmsnorm(float* o, float* x, float* weight, int size) {
+void rmsnorm(__fp16* o, __fp16* x, __fp16* weight, int size) {
     // calculate sum of squares
     float ss = 0.0f;
     for (int j = 0; j < size; j++) {
-        ss += x[j] * x[j];
+        ss += (float)x[j] * (float)x[j];
     }
     ss /= size;
     ss += 1e-5f;
     ss = 1.0f / sqrtf(ss);
     // normalize and scale
     for (int j = 0; j < size; j++) {
-        o[j] = weight[j] * (ss * x[j]);
+        o[j] = (float)weight[j] * (ss * (float)x[j]);
     }
 }
 #endif // MY_OPT
 
-void softmax(float* x, int size) {
+void softmax(__fp16* x, int size) {
     // find max value (for numerical stability)
     float max_val = x[0];
     for (int i = 1; i < size; i++) {
-        if (x[i] > max_val) {
-            max_val = x[i];
+        if ((float)x[i] > max_val) {
+            max_val = (float)x[i];
         }
     }
     // exp and sum
     float sum = 0.0f;
     for (int i = 0; i < size; i++) {
-        x[i] = expf(x[i] - max_val);
-        sum += x[i];
+        float tmp = expf((float)x[i] - max_val);
+        x[i] = (__fp16) tmp;
+        sum += tmp;
     }
     // normalize
     for (int i = 0; i < size; i++) {
-        x[i] /= sum;
+        x[i] /= (__fp16)sum;
     }
 }
 
@@ -243,7 +243,8 @@ void softmax(float* x, int size) {
 #ifdef MY_OPT
 
 #else // MY_OPT
-void matmul(float* xout, float* x, float* w, int n, int d) {
+// Matmul is done in fp32 accumulation to preserve
+void matmul(__fp16* xout, __fp16* x, __fp16* w, int n, int d) {
     // W (d,n) @ x (n,) -> xout (d,)
     // by far the most amount of time is spent inside this little function
     int i;
@@ -251,20 +252,20 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     for (i = 0; i < d; i++) {
         float val = 0.0f;
         for (int j = 0; j < n; j++) {
-            val += w[i * n + j] * x[j];
+            val += (float) w[i * n + j] * (float) x[j];
         }
-        xout[i] = val;
+        xout[i] = (__fp16) val;
     }
 }
 #endif // MY_OPT
 
-float* forward(Transformer* transformer, int token, int pos) {
+__fp16* forward(Transformer* transformer, int token, int pos) {
 
     // a few convenience variables
     Config* p = &transformer->config;
     TransformerWeights* w = &transformer->weights;
     RunState* s = &transformer->state;
-    float *x = s->x;
+    __fp16 *x = s->x;
     int dim = p->dim;
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
     int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
@@ -272,7 +273,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     int head_size = dim / p->n_heads;
 
     // copy the token embedding into x
-    float* content_row = w->token_embedding_table + token * dim;
+    __fp16* content_row = w->token_embedding_table + token * dim;
     memcpy(x, content_row, dim*sizeof(*x));
 
     // forward all the layers
@@ -280,7 +281,7 @@ float* forward(Transformer* transformer, int token, int pos) {
 
         // attention rmsnorm
         rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
-
+        
         // key and value point to the kv cache
         int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
         s->k = s->key_cache + loff + pos * kv_dim;
@@ -288,9 +289,9 @@ float* forward(Transformer* transformer, int token, int pos) {
 
         // qkv matmuls for this position
 #ifdef ACCELERATE_NEW_LAPACK
-        cblas_sgemv(CblasRowMajor, CblasNoTrans, p->n_heads * head_size, dim, 1.0f, w->wq + l*dim*dim, dim, s->xb, 1, 0.0f, s->q, 1);
-        cblas_sgemv(CblasRowMajor, CblasNoTrans, p->n_kv_heads * head_size, dim, 1.0f, w->wk + l*dim*dim, dim, s->xb, 1, 0.0f, s->k, 1);
-        cblas_sgemv(CblasRowMajor, CblasNoTrans, p->n_kv_heads * head_size, dim, 1.0f, w->wv + l*dim*dim, dim, s->xb, 1, 0.0f, s->v, 1);
+        // cblas_sgemv(CblasRowMajor, CblasNoTrans, p->n_heads * head_size, dim, 1.0f, w->wq + l*dim*dim, dim, s->xb, 1, 0.0f, s->q, 1);
+        // cblas_sgemv(CblasRowMajor, CblasNoTrans, p->n_kv_heads * head_size, dim, 1.0f, w->wk + l*dim*dim, dim, s->xb, 1, 0.0f, s->k, 1);
+        // cblas_sgemv(CblasRowMajor, CblasNoTrans, p->n_kv_heads * head_size, dim, 1.0f, w->wv + l*dim*dim, dim, s->xb, 1, 0.0f, s->v, 1);
 #else // ACCELERATE_NEW_LAPACK
         matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
         matmul(s->k, s->xb, w->wk + l*dim*kv_dim, dim, kv_dim);
@@ -300,17 +301,17 @@ float* forward(Transformer* transformer, int token, int pos) {
         // RoPE relative positional encoding: complex-valued rotate q and k in each head
         for (int i = 0; i < dim; i+=2) {
             int head_dim = i % head_size;
-            float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
+            float freq = 1.0f / powf(10000.0f, head_dim / (__fp16)head_size);
             float val = pos * freq;
             float fcr = cosf(val);
             float fci = sinf(val);
             int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
             for (int v = 0; v < rotn; v++) {
-                float* vec = v == 0 ? s->q : s->k; // the vector to rotate (query or key)
-                float v0 = vec[i];
-                float v1 = vec[i+1];
-                vec[i]   = v0 * fcr - v1 * fci;
-                vec[i+1] = v0 * fci + v1 * fcr;
+                __fp16* vec = v == 0 ? s->q : s->k; // the vector to rotate (query or key)
+                float v0 = (float)vec[i];
+                float v1 = (float)vec[i+1];
+                vec[i]   = (__fp16)v0 * fcr - v1 * fci;
+                vec[i+1] = (__fp16)v0 * fci + v1 * fcr;
             }
         }
 
@@ -319,34 +320,36 @@ float* forward(Transformer* transformer, int token, int pos) {
         #pragma omp parallel for private(h)
         for (h = 0; h < p->n_heads; h++) {
             // get the query vector for this head
-            float* q = s->q + h * head_size;
+            __fp16* q = s->q + h * head_size;
             // attention scores for this head
-            float* att = s->att + h * p->seq_len;
+            __fp16* att = s->att + h * p->seq_len;
             // iterate over all timesteps, including the current one
             for (int t = 0; t <= pos; t++) {
                 // get the key vector for this head and at this timestep
-                float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+                __fp16* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
                 // calculate the attention score as the dot product of q and k
                 float score = 0.0f;
+                // unroll the loop for performance 4x
+                #pragma unroll 128
                 for (int i = 0; i < head_size; i++) {
-                    score += q[i] * k[i];
+                    score += (float)q[i] * (float)k[i];
                 }
                 score /= sqrtf(head_size);
                 // save the score to the attention buffer
-                att[t] = score;
+                att[t] = (__fp16) score;
             }
 
             // softmax the scores to get attention weights, from 0..pos inclusively
             softmax(att, pos + 1);
 
             // weighted sum of the values, store back into xb
-            float* xb = s->xb + h * head_size;
-            memset(xb, 0, head_size * sizeof(float));
+            __fp16* xb = s->xb + h * head_size;
+            memset(xb, 0, head_size * sizeof(__fp16));
             for (int t = 0; t <= pos; t++) {
                 // get the value vector for this head and at this timestep
-                float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+                __fp16* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
                 // get the attention weight for this timestep
-                float a = att[t];
+                __fp16 a = att[t];
                 // accumulate the weighted value into xb
                 for (int i = 0; i < head_size; i++) {
                     xb[i] += a * v[i];
@@ -381,7 +384,7 @@ float* forward(Transformer* transformer, int token, int pos) {
 
         // SwiGLU non-linearity
         for (int i = 0; i < hidden_dim; i++) {
-            float val = s->hb[i];
+            __fp16 val = s->hb[i];
             // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
             val *= (1.0f / (1.0f + expf(-val)));
             // elementwise multiply with w3(x)
@@ -411,6 +414,7 @@ float* forward(Transformer* transformer, int token, int pos) {
 #else // ACCELERATE_NEW_LAPACK
     matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
 #endif // ACCELERATE_NEW_LAPACK
+
     return s->logits;
 }
 
@@ -640,10 +644,10 @@ typedef struct {
     unsigned long long rng_state;
 } Sampler;
 
-int sample_argmax(float* probabilities, int n) {
+int sample_argmax(__fp16* probabilities, int n) {
     // return the index that has the highest probability
     int max_i = 0;
-    float max_p = probabilities[0];
+    __fp16 max_p = probabilities[0];
     for (int i = 1; i < n; i++) {
         if (probabilities[i] > max_p) {
             max_i = i;
@@ -653,12 +657,12 @@ int sample_argmax(float* probabilities, int n) {
     return max_i;
 }
 
-int sample_mult(float* probabilities, int n, float coin) {
+int sample_mult(__fp16* probabilities, int n, float coin) {
     // sample index from probabilities (they must sum to 1!)
     // coin is a random number in [0, 1), usually from random_f32()
     float cdf = 0.0f;
     for (int i = 0; i < n; i++) {
-        cdf += probabilities[i];
+        cdf += (float) probabilities[i];
         if (coin < cdf) {
             return i;
         }
@@ -674,7 +678,7 @@ int compare(const void* a, const void* b) {
     return 0;
 }
 
-int sample_topp(float* probabilities, int n, float topp, ProbIndex* probindex, float coin) {
+int sample_topp(__fp16* probabilities, int n, __fp16 topp, ProbIndex* probindex, __fp16 coin) {
     // top-p sampling (or "nucleus sampling") samples from the smallest set of
     // tokens that exceed probability topp. This way we never sample tokens that
     // have very low probabilities and are less likely to go "off the rails".
@@ -684,7 +688,7 @@ int sample_topp(float* probabilities, int n, float topp, ProbIndex* probindex, f
     // quicksort indices in descending order of probabilities
     // values smaller than (1 - topp) / (n - 1) cannot be part of the result
     // so for efficiency we crop these out as candidates before sorting
-    const float cutoff = (1.0f - topp) / (n - 1);
+    const float cutoff = (float)(1.0f - topp) / (n - 1);
     for (int i = 0; i < n; i++) {
         if (probabilities[i] >= cutoff) {
             probindex[n0].index = i;
@@ -695,7 +699,7 @@ int sample_topp(float* probabilities, int n, float topp, ProbIndex* probindex, f
     qsort(probindex, n0, sizeof(ProbIndex), compare);
 
     // truncate the list where cumulative probability exceeds topp
-    float cumulative_prob = 0.0f;
+    __fp16 cumulative_prob = 0.0f;
     int last_idx = n0 - 1; // in case of rounding errors consider all elements
     for (int i = 0; i < n0; i++) {
         cumulative_prob += probindex[i].prob;
@@ -706,8 +710,8 @@ int sample_topp(float* probabilities, int n, float topp, ProbIndex* probindex, f
     }
 
     // sample from the truncated list
-    float r = coin * cumulative_prob;
-    float cdf = 0.0f;
+    __fp16 r = coin * cumulative_prob;
+    __fp16 cdf = 0.0f;
     for (int i = 0; i <= last_idx; i++) {
         cdf += probindex[i].prob;
         if (r < cdf) {
@@ -717,7 +721,7 @@ int sample_topp(float* probabilities, int n, float topp, ProbIndex* probindex, f
     return probindex[last_idx].index; // in case of rounding errors
 }
 
-void build_sampler(Sampler* sampler, int vocab_size, float temperature, float topp, unsigned long long rng_seed) {
+void build_sampler(Sampler* sampler, int vocab_size, __fp16 temperature, __fp16 topp, unsigned long long rng_seed) {
     sampler->vocab_size = vocab_size;
     sampler->temperature = temperature;
     sampler->topp = topp;
@@ -741,7 +745,7 @@ float random_f32(unsigned long long *state) { // random float32 in [0,1)
     return (random_u32(state) >> 8) / 16777216.0f;
 }
 
-int sample(Sampler* sampler, float* logits) {
+int sample(Sampler* sampler, __fp16* logits) {
     // sample the token given the logits and some hyperparameters
     int next;
     if (sampler->temperature == 0.0f) {
@@ -749,7 +753,7 @@ int sample(Sampler* sampler, float* logits) {
         next = sample_argmax(logits, sampler->vocab_size);
     } else {
         // apply the temperature to the logits
-        for (int q=0; q<sampler->vocab_size; q++) { logits[q] /= sampler->temperature; }
+        for (int q=0; q<sampler->vocab_size; q++) { logits[q] /= (__fp16)sampler->temperature; }
         // apply softmax to the logits to get the probabilities for next token
         softmax(logits, sampler->vocab_size);
         // flip a (float) coin (this is our source of entropy for sampling)
@@ -800,7 +804,7 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     while (pos < steps) {
 
         // forward the transformer to get logits for the next token
-        float* logits = forward(transformer, token, pos);
+        __fp16* logits = forward(transformer, token, pos);
 
         // advance the state machine
         if (pos < num_prompt_tokens - 1) {
@@ -920,7 +924,7 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
         if (token == 2) { user_turn = 1; }
 
         // forward the transformer to get logits for the next token
-        float* logits = forward(transformer, token, pos);
+        __fp16* logits = forward(transformer, token, pos);
         next = sample(sampler, logits);
         pos++;
 

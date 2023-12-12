@@ -28,13 +28,18 @@ from torch import nn
 
 from model import ModelArgs, Transformer
 
+FP16_MODE = True
 # -----------------------------------------------------------------------------
 # common utilities
 
 def serialize_fp32(file, tensor):
     """ writes one fp32 tensor to file that is open in wb mode """
-    d = tensor.detach().cpu().view(-1).to(torch.float32).numpy()
-    b = struct.pack(f'{len(d)}f', *d)
+    if FP16_MODE:
+        d = tensor.detach().cpu().view(-1).to(torch.float32).numpy().astype(np.float16)
+        b = struct.pack(f'{len(d)}e', *d)
+    else:
+        d = tensor.detach().cpu().view(-1).to(torch.float32).numpy()
+        b = struct.pack(f'{len(d)}f', *d)
     file.write(b)
 
 def serialize_int8(file, tensor):
