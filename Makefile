@@ -64,6 +64,11 @@ myrun: run.c
 	$(NDK_TOOL) $(CFLAGS) $(LDFLAGS) -Ofast -static-openmp -fopenmp -DMY_OPT -o run run.c microkernels.c -lm -mfpu=neon -mfloat-abi=hard
 	$(NDK_TOOL) $(CFLAGS) $(LDFLAGS) -Ofast -static-openmp -fopenmp -DMY_OPT -o runq runq.c -lm -mfpu=neon -mfloat-abi=hard
 
+.PHONY: runfp16
+runfp16: runfp16.c
+	$(NDK_TOOL) $(CFLAGS) $(LDFLAGS) -Ofast -static-openmp -fopenmp -o run runfp16.c -lm -mfpu=neon -mfloat-abi=hard
+	# $(NDK_TOOL) $(CFLAGS) $(LDFLAGS) -Ofast -static-openmp -fopenmp  -o runq runq.c -lm -mfpu=neon -mfloat-abi=hard
+
 
 .PHONY: win64
 win64:
