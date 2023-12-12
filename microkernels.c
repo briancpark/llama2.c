@@ -17,7 +17,7 @@ void matmul_32000_768(float* xout, float* x, float* w) {
     const int prefetch_distance = 64; // This is a heuristic. Adjust as needed for your specific architecture and workload.
 
     int i;
-// #pragma omp parallel for private(i)
+#pragma omp parallel for private(i)
     for (i = 0; i < 32000; i++) {
         register __m256 val_vec1, val_vec2, val_vec3, val_vec4;
         register __m256 x_vec1, x_vec2, x_vec3, x_vec4, w_vec1, w_vec2, w_vec3, w_vec4;
@@ -262,7 +262,7 @@ void matmul_4096_4096(float* xout, float* x, float* w) {
 
     int i;
 
-// #pragma omp parallel for private(i)
+#pragma omp parallel for private(i)
     for (i = 0; i < 4096; i++) {
         register __m256 val_vec1, val_vec2, val_vec3, val_vec4;
         register __m256 x_vec1, x_vec2, x_vec3, x_vec4, w_vec1, w_vec2, w_vec3, w_vec4;
@@ -393,7 +393,7 @@ void matmul_4096_11008(float* xout, float* x, float* w) {
 
     int i;
 
-// #pragma omp parallel for private(i)
+#pragma omp parallel for private(i)
     for (i = 0; i < 4096; i++) {
         register __m256 val_vec1, val_vec2, val_vec3, val_vec4;
         register __m256 x_vec1, x_vec2, x_vec3, x_vec4, w_vec1, w_vec2, w_vec3, w_vec4;

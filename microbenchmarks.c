@@ -17,7 +17,7 @@
 #define TRIALS 1000
 #define WARMUP_TRIALS 10
 
-// #define BLAS
+#define BLAS
 
 int main(int argc, char *argv[]) {
 
